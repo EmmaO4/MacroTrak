@@ -1,0 +1,5 @@
+food.py
+    attrs:
+        macros: calories, fat, sat_fat, poly_fat, mono_fat, carbs, fiber, insol_fiber, sol_fiber, sugar, protein
+runner.py  
+    runner file for creating food object instances 
