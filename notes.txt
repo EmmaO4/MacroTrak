@@ -1,0 +1,3 @@
+pgAdmin 4
+
+servers > databases > macrotraker > schemas > public > tables > view all rows (Alt+Shift V)

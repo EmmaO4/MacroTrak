@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Barcode Scanner</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        video {
+            width: 100%;
+            max-width: 640px;
+            border: 2px solid #ccc;
+            margin-bottom: 20px;
+        }
+        #result {
+            font-size: 1.2em;
+            margin-top: 20px;
+        }
+        .focus-area {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 300px;
+            height: 200px;
+            border: 3px solid rgba(255, 255, 255, 0.7);
+            border-radius: 10px;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+        }
+        #persistent-link {
+            display: none;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #008CBA;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 16px;
+        }
+        #persistent-link:hover {
+            background-color: #005f73;
+        }
+    </style>
+</head>
+<body>
+    <h1>Scan Food Barcode</h1>
+    <div class="focus-area"></div>
+    <video id="scanner" autoplay></video>
+    <div id="result"></div>
+    <a id="persistent-link" href="#" target="_blank">View Product on Open Food Facts</a>
+
+    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+
+    <script>
+        const videoElement = document.getElementById("scanner");
+        const persistentLink = document.getElementById("persistent-link");
+
+        // Start the video stream
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then((stream) => {
+                videoElement.srcObject = stream;
+
+                // Start QuaggaJS to listen for barcodes
+                Quagga.init({
+                    inputStream: {
+                        name: "Live",
+                        type: "LiveStream",
+                        target: videoElement, // This will display the video stream
+                        constraints: {
+                            facingMode: "environment", // Use rear camera (on mobile)
+                            width: 1280, // Higher resolution for barcode clarity
+                            height: 720
+                        }
+                    },
+                    decoder: {
+                        readers: ["ean_reader", "upc_reader", "code_128_reader", "ean_8_reader", "upc_e_reader"]
+                    },
+                    locator: {
+                        patchSize: "medium", // Medium patch size for better accuracy
+                        halfSample: true     // Use half-sampling for quicker detection
+                    },
+                    locate: true
+                }, function(err) {
+                    if (err) {
+                        console.error("Quagga initialization failed:", err);
+                        return;
+                    }
+                    console.log("Quagga initialized successfully.");
+                    Quagga.start();  // Start barcode detection
+                });
+
+                // Handle barcode detection
+                Quagga.onDetected(function(result) {
+                    const barcodeData = result.codeResult.code;
+                    console.log("Detected Barcode: " + barcodeData);
+
+                    // Send the barcode to your backend to get product data
+                    fetch('/scan_barcode', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ barcode: barcodeData })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.message) {
+                            // Display product information
+                            document.getElementById("result").textContent = "Food added: " + data.message;
+                            const productUrl = `https://world.openfoodfacts.org/product/${barcodeData}`;
+                            persistentLink.href = productUrl;
+                            persistentLink.style.display = 'inline-block';  // Show the link
+                        } else {
+                            document.getElementById("result").textContent = "Error: " + data.error;
+                            persistentLink.style.display = 'none';  // Hide the link in case of an error
+                        }
+                    })
+                    .catch(error => {
+                        console.error("Error fetching product data:", error);
+                        document.getElementById("result").textContent = "Error fetching product data.";
+                        persistentLink.style.display = 'none';
+                    });
+
+                    // Optionally stop scanning after one successful detection
+                    Quagga.stop();
+                });
+            })
+            .catch((err) => {
+                console.error("Error accessing webcam:", err);
+                document.getElementById("result").textContent = "Error accessing webcam.";
+            });
+    </script>
+</body>
+</html>

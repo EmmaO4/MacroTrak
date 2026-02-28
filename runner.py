@@ -1,18 +1,23 @@
-from food import Food
+import cv2
+import requests
 import psycopg2
+from flask import Flask, request, jsonify, render_template
+from food import Food  # Assuming the Food class is defined elsewhere for structuring food data
 
+app = Flask(__name__)
+
+# Database Connection
 def connect_to_db():
-    """Function to connect to the PostgreSQL database."""
     return psycopg2.connect(
-        dbname="macrotrak_db",   # Your database name
-        user="postgres",            # Your database username
-        password="password",     # Your database password
-        host="localhost",        # Use localhost for local PostgreSQL server
-        port="5432"              # Default PostgreSQL port
+        dbname="macrotrak_db",  
+        user="postgres",           
+        password="password",    
+        host="localhost",       
+        port="5432"              
     )
 
+# Insert food data into the database
 def insert_food_item(cur, food):
-    """Function to insert a food item into the database using the Food object."""
     cur.execute("""
         INSERT INTO food_items (item_name, calories, fat, sat_fat, poly_fat, mono_fat, carbs, fiber, insol_fiber, sol_fiber, sugar, protein)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
@@ -20,51 +25,80 @@ def insert_food_item(cur, food):
           food.get_monounsaturated_fat(), food.get_carbs(), food.get_fiber(), food.get_insoluble_fiber(),
           food.get_soluble_fiber(), food.get_sugar(), food.get_protein()))
 
-def get_food_input():
-    """Function to get food details from the user and return as a Food object."""
-    print("\nEnter the food details:")
-    item_name = input("Food Item Name: ")  # Ask for the food name
-    calories = int(input("Calories: "))
-    fat = float(input("Fat (grams): "))
-    sat_fat = float(input("Saturated Fat (grams): "))
-    poly_fat = float(input("Polyunsaturated Fat (grams): "))
-    mono_fat = float(input("Monounsaturated Fat (grams): "))
-    carbs = float(input("Carbohydrates (grams): "))
-    fiber = float(input("Fiber (grams): "))
-    insol_fiber = float(input("Insoluble Fiber (grams): "))
-    sol_fiber = float(input("Soluble Fiber (grams): "))
-    sugar = float(input("Sugar (grams): "))
-    protein = float(input("Protein (grams): "))
+# Fetch food data from Open Food Facts API based on barcode
+def fetch_food_data(barcode):
+    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json().get("product", {})
+        return data
+    else:
+        return None
 
-    # Create a Food object with the user input
-    food = Food(item_name, calories, fat, sat_fat, poly_fat, mono_fat, carbs, fiber, insol_fiber, sol_fiber, sugar, protein)
-    return food
+# API endpoint for barcode scanning
+@app.route('/scan_barcode', methods=['POST'])
+def scan_barcode():
+    barcode = request.json.get('barcode')
+    food_data = fetch_food_data(barcode)
+    if food_data:
+        food = Food(
+            food_data.get('product_name', 'Unknown'),
+            food_data.get('nutriments', {}).get('energy-kcal_100g', 0),
+            food_data.get('nutriments', {}).get('fat_100g', 0),
+            food_data.get('nutriments', {}).get('saturated-fat_100g', 0),
+            food_data.get('nutriments', {}).get('polyunsaturated-fat_100g', 0),
+            food_data.get('nutriments', {}).get('monounsaturated-fat_100g', 0),
+            food_data.get('nutriments', {}).get('carbohydrates_100g', 0),
+            food_data.get('nutriments', {}).get('fiber_100g', 0),
+            food_data.get('nutriments', {}).get('insoluble-fiber_100g', 0),
+            food_data.get('nutriments', {}).get('soluble-fiber_100g', 0),
+            food_data.get('nutriments', {}).get('sugars_100g', 0),
+            food_data.get('nutriments', {}).get('proteins_100g', 0)
+        )
 
-def runner():
-    """Function to repeatedly ask for user input and insert the food data into the database."""
-    conn = connect_to_db()  # Connect to the database
-    cur = conn.cursor()  # Create a cursor to interact with the database
-    
-    while True:
-        # Get food details from the user and create a Food object
-        food = get_food_input()
-        
-        # Insert the food item into the database
+        # Insert food item into the database
+        conn = connect_to_db()
+        cur = conn.cursor()
         insert_food_item(cur, food)
-        
-        # Commit the transaction (save changes)
         conn.commit()
-        print("\nFood item added successfully!\n")
+        cur.close()
+        conn.close()
         
-        # Ask if the user wants to add another food item
-        another = input("Do you want to add another food item? (y/n): ")
-        if another.lower() != 'y':
-            break  # Exit the loop if the user doesn't want to add more items
+        return jsonify({"message": "Food item added successfully!"}), 200
+    else:
+        return jsonify({"error": "Product not found."}), 404
 
-    # Close the cursor and connection
-    cur.close()
-    conn.close()
-    print("\nExiting...")
+# Route to render the barcode scanner HTML page
+@app.route('/')
+def index():
+    return render_template('barcode-scanner.html')
+
+# Barcode scanning using OpenCV
+def scan_with_opencv():
+    cap = cv2.VideoCapture(0)
+    detector = cv2.barcode_BarcodeDetector()  # Barcode detector object
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        cv2.imshow("Barcode Scanner", frame)
+
+        # Barcode detection (using OpenCV)
+        retval, decoded_info, _, _ = detector.detectAndDecodeMulti(frame)
+        if retval:
+            for barcode in decoded_info:
+                barcode_data = barcode
+                print(f"Detected Barcode: {barcode_data}")
+                # Send this barcode to Flask API to fetch and store food data
+                # You can use a POST request to your Flask /scan_barcode endpoint
+                break  # Stop scanning after detecting the first barcode
+
+        # Exit on ESC key
+        if cv2.waitKey(1) == 27:
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    runner()
+    app.run(debug=True)

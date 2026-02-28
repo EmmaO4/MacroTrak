@@ -1,2 +1,7 @@
 learn db connection and query execution through py
-auth and session/cookie stuff for flask web dev
+use food barcode to quickly parse food attrs from nutrition facts
+    backend: python + flask
+    opencv: barcode scanning
+    web interface: html + css
+    API: open food facts
+prac auth and session/cookie stuff for flask web dev
